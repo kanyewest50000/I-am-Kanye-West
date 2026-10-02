@@ -15,7 +15,7 @@
 import { ROOT, SHRINE_FILES, readShrineFile } from "./shrine-sources.ts";
 
 const PAGES = "https://kanyewest50000.github.io/offline-learning/";
-const DENO = "https://offline-learning.kanyewest50000.deno.net";
+const DENO = "https://tung.takelearningoffline.deno.net";
 
 function must(ok: unknown, msg: string) {
   if (!ok) throw new Error(msg);
@@ -119,7 +119,7 @@ function repoUrls(S: any): string[] {
   must(!doc.includes("replit.dev"), "the shrine document leaked the embedding host");
   const allowed = new Set([
     "kanyewest50000.github.io",     // the repo's own files
-    "offline-learning.kanyewest50000.deno.net", // the backend
+    "tung.takelearningoffline.deno.net", // the backend
     "cuhsd.instructure.com",        // the cloak favicon
     "www.w3.org",                   // svg namespaces
     // The chess piece sets, and the ONLY third-party host the shrine reaches

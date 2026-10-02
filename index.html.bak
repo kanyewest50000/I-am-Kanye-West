@@ -956,7 +956,7 @@
      /status -> poll /events for history + live messages, POST /send + /react.
      auth, usernames, approvals and message history all live server-side in
      Deno KV. the discord webhook + admin key live in the server's env vars. */
-  var SHRINE_API = "https://offline-learning.kanyewest50000.deno.net";
+  var SHRINE_API = "https://tung.takelearningoffline.deno.net";
 
   /* tung's curated games. gnmath games are copied into this repo's /games and
      served from our own github pages (jsdelivr served them as text/plain, so

@@ -1,15 +1,15 @@
 #!/usr/bin/env -S deno run --allow-net --allow-env --allow-write
 // Pull the whole shrine database out of a running server, into one file.
 //
-// The new Deno Deploy keeps an app's KV where only that app can reach it, so
-// the server hands it over itself: POST /admin/export, a page at a time, with
-// the admin key. This walks the pages and writes one entry per line (NDJSON).
+// The server hands its own data over: POST /admin/export, a page at a time,
+// with the admin key — no Deno login or access token needed. This walks the
+// pages and writes one entry per line (NDJSON).
 // scripts/kv-import.ts writes that file into any other Deno KV — a new Deno
 // account, or a plain file on a server of your own.
 //
 // The file holds everything, login keys included: treat it like the admin key.
 //
-//   API=https://offline-learning.kanyewest50000.deno.net ADMIN_KEY=... \
+//   API=https://tung.takelearningoffline.deno.net ADMIN_KEY=... \
 //     deno run --allow-net --allow-env --allow-write scripts/kv-export.ts shrine-export.ndjson
 
 const API = (Deno.env.get("API") || "http://127.0.0.1:8000").replace(/\/$/, "");

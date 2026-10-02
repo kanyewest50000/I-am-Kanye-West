@@ -877,23 +877,59 @@ not change.
 So the backend's own bandwidth is small; on a host that bills per request the
 number to watch is requests — each open tab makes roughly 1,200 an hour.
 
-**Taking the data with you.** The new Deno Deploy keeps an app's KV where only
-the app can reach it, so the app hands it over: `POST /admin/export` pages
-through every entry with the admin key, and two scripts do the rest.
+**Where it runs, and how a change gets there.** The backend is the app `tung` in
+the `takelearningoffline` organization on Deno Deploy, at
+`https://tung.takelearningoffline.deno.net`. It is deployed from a folder on the
+owner's machine with the `deno deploy` CLI and is not linked to GitHub, so
+pushing `server.ts` here does not redeploy it. After any change to `server.ts`,
+copy it into that local `shrine-backend` folder and deploy from there:
 
 ```
-# out of the running server, into a file (login keys included — keep it private)
-API=https://offline-learning.kanyewest50000.deno.net ADMIN_KEY=... \
+cp server.ts ../shrine-backend/
+cd ../shrine-backend && deno deploy --prod
+```
+
+That folder holds `server.ts` and this `deno.json`, and needs both:
+
+```json
+{"unstable":["kv"],"deploy":{"org":"takelearningoffline","app":"tung","runtime":{"type":"dynamic","entrypoint":"./server.ts"}}}
+```
+
+Without it the build fails with "No runtime entrypoint provided", and
+`Deno.openKv` is undefined — Deno Deploy has no command line to pass
+`--unstable-kv` on, so `"unstable": ["kv"]` is the only way it gets turned on.
+The folder is only those two files on purpose: the repo is gigabytes of games
+the backend never reads.
+
+**Taking the data with you.** There are two ways into the database, and both end
+in the same file. The running app hands its own data over: `POST /admin/export`
+pages through every entry with the admin key and needs nothing else — no Deno
+login, no database id. Or the KV can be opened from outside over KV Connect,
+`Deno.openKv("https://api.deno.com/v2/databases/<DATABASE_ID>/connect")` with
+`DENO_KV_ACCESS_TOKEN` set to an organization access token (`ddo_…`); the id is
+the one for the app's `<app-id>-production` database, on the database
+instance's page in the Deno Deploy console.
+
+```
+# out of the running server, into a file (login keys included — keep it private;
+# .gitignore keeps shrine-export*.ndjson out of the repo)
+API=https://tung.takelearningoffline.deno.net ADMIN_KEY=... \
   deno run --allow-net --allow-env --allow-write scripts/kv-export.ts shrine-export.ndjson
 
-# into any other Deno KV — here a file on your own server
+# into another Deno Deploy app's KV, over KV Connect
+DENO_KV_ACCESS_TOKEN=ddo_... \
+  deno run --allow-read --allow-net --allow-env --unstable-kv scripts/kv-import.ts \
+  shrine-export.ndjson https://api.deno.com/v2/databases/<DATABASE_ID>/connect
+
+# or into a file on your own server
 deno run --allow-read --allow-write --unstable-kv scripts/kv-import.ts shrine-export.ndjson /srv/shrine/shrine.db
 ```
 
 Values JSON cannot carry (the giveaway entry counters are `Deno.KvU64`) travel
 tagged and come back as themselves. KV does not say how long an entry had left,
 so what the server writes to expire gets its full lifetime again from the
-import. Import into a stopped or not-yet-started server.
+import. Import into a stopped or not-yet-started server, and redeploy one that
+was already running so nothing it held in memory outlives the import.
 
 **Running it somewhere else.** Nothing in `server.ts` is Deno Deploy–specific:
 on any machine with Deno,

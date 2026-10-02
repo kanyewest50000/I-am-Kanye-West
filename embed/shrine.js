@@ -41,7 +41,7 @@
   /* Where the backend is. Only used here to ask what the current build is;
      config.js resolves this again for itself, and ?api= overrides both so a
      local dry-run does not go asking production what version it is. */
-  var API = attr("data-api") || "https://offline-learning.kanyewest50000.deno.net";
+  var API = attr("data-api") || "https://tung.takelearningoffline.deno.net";
   try {
     var apiQ = new URLSearchParams(location.search).get("api");
     if (apiQ) API = String(apiQ);

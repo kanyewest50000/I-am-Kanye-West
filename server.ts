@@ -6949,12 +6949,14 @@ async function handle(req: Request, info: Deno.ServeHandlerInfo<Deno.NetAddr>): 
   }
 
   // ---------- admin: export the whole database ----------
-  // Every entry, a page at a time, for moving the shrine to another host — the
-  // new Deno Deploy has no way to reach its KV from outside the app, so the app
-  // hands it over itself. Key-gated like everything here, and it is the lot:
-  // login keys included, so the file it makes is as private as the admin key.
-  // scripts/kv-export.ts pages through this into a file; scripts/kv-import.ts
-  // writes that file into any other Deno KV.
+  // Every entry, a page at a time, for moving the shrine to another host. It
+  // needs the admin key and nothing else — no Deno login, no database id, no
+  // access token. (The KV can also be opened from outside over KV Connect, but
+  // that takes a token from the organization that owns it.) Key-gated like
+  // everything here, and it is the lot: login keys included, so the file it
+  // makes is as private as the admin key. scripts/kv-export.ts pages through
+  // this into a file; scripts/kv-import.ts writes that file into any other
+  // Deno KV.
   if (req.method === "POST" && path === "/admin/export") {
     // deno-lint-ignore no-explicit-any
     const b: any = await req.json().catch(() => ({}));

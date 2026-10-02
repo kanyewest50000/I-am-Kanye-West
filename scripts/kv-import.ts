@@ -3,8 +3,11 @@
 //
 // The target is whatever Deno.openKv() is given: a file path for a server of
 // your own (the same path you then run the shrine with, as SHRINE_KV_PATH), or
-// nothing at all when this runs inside a Deno Deploy app. Existing entries
-// under the same keys are overwritten; nothing else is touched.
+// a Deno Deploy database's KV Connect URL,
+// https://api.deno.com/v2/databases/<DATABASE_ID>/connect, with
+// DENO_KV_ACCESS_TOKEN set to an access token for the organization that owns
+// it (that needs --allow-net --allow-env too). Existing entries under the same
+// keys are overwritten; nothing else is touched.
 //
 // KV does not say how long an entry had left to live, so the ones the server
 // writes to expire get their full lifetime again from the moment of import —
@@ -34,7 +37,8 @@ const TTL: Record<string, number> = {
   duel: DAY, duelof: DAY, duelopen: DAY,
   raffle: 14 * DAY, raffle_in: 14 * DAY, raffle_paid: 14 * DAY, raffleq: 14 * DAY, rafflen: 14 * DAY,
   claimlog: 30 * DAY, claimnet: 30 * DAY,
-  tiplog: 90 * DAY, tiplogu: 90 * DAY,
+  tiplog: 90 * DAY, tiplogu: 90 * DAY, tiplock: 7 * DAY,
+  dmblock: 30 * DAY,
 };
 
 // the tags kvEnc() in server.ts writes, back into the real thing

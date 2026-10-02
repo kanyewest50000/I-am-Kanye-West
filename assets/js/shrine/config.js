@@ -17,7 +17,7 @@
      /events?since= then 8s. auth, usernames, approvals and message history
      all live server-side in Deno KV. the discord webhook + admin key live
      in the server's env vars. */
-  var SHRINE_API = "https://offline-learning.kanyewest50000.deno.net";
+  var SHRINE_API = "https://tung.takelearningoffline.deno.net";
   try {
     var _apiQ = new URLSearchParams(location.search).get("api");
     if (_apiQ) SHRINE_API = String(_apiQ).replace(/\/$/, "");
