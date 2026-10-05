@@ -67,6 +67,10 @@
 //   GET  /admin/veil?key=                                 -> {live, configured}
 //   POST /admin/veil    {key, live}                       -> {ok, live, configured}
 //   POST /admin/veiluser {key, id, allowed}               -> {ok, veil}
+//   GET  /admin/maint?key=                                -> {on, msg, since}
+//   POST /admin/maint   {key, on, msg?}                   -> {ok, on, msg, since}
+//        (while it is on, everything but /admin and /version answers
+//         503 {error:"maintenance", maintenance:true, msg} without reading KV)
 //   POST /admin/talk/list   {key}                         -> {convs}           (tung's inbox)
 //   POST /admin/talk/thread {key, user}                   -> {msgs}            (marks his side read)
 //   POST /admin/talk/send   {key, user, text}             -> {ok, msg}         (speaks as tung)
@@ -1191,6 +1195,50 @@ async function veilLive(): Promise<boolean> {
   if (!PROXY_URL) return false;
   const f = await kv.get<boolean>(["veil", "live"]);
   return f.value === true;
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance mode: the switch on /admin that shuts the shrine to everybody but
+// the panel, so the database stops being read and written while it is on.
+// Everything else answers maintReply() before it gets near KV — the IP cap's
+// token lookup included — and the clients put up one "resting" screen and stop
+// polling, asking again twice a minute until the switch goes off.
+//
+// Checking the switch must not cost what it is there to save, and every request
+// checks it. So the answer is held in memory and read back from KV at most once
+// every MAINT_TTL on each running copy of the server: on or off, that is two
+// reads a minute per isolate however busy the shrine is. The copy that flips it
+// knows at once; any other copy hears within MAINT_TTL. A read that fails keeps
+// what was known before rather than shutting the door on a guess.
+//   ["maint"] -> { on, msg, since }
+type Maint = { on: boolean; msg: string; since: number };
+const MAINT_TTL = 30_000;
+let maintKnown: Maint = { on: false, msg: "", since: 0 };
+let maintAt = 0;
+let maintLoading: Promise<Maint> | null = null;
+function maintClean(v: unknown): Maint {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return { on: o.on === true, msg: clip(o.msg, 200), since: Number(o.since) || 0 };
+}
+function maintState(): Promise<Maint> {
+  if (Date.now() - maintAt < MAINT_TTL) return Promise.resolve(maintKnown);
+  // one read however many requests arrive while it is in flight
+  if (!maintLoading) {
+    maintLoading = kv.get(["maint"])
+      .then((e) => (maintKnown = maintClean(e.value)))
+      .catch(() => maintKnown)
+      .finally(() => {
+        maintAt = Date.now();
+        maintLoading = null;
+      });
+  }
+  return maintLoading;
+}
+function maintReply(m: Maint): Response {
+  return new Response(JSON.stringify({ error: "maintenance", maintenance: true, msg: m.msg }), {
+    status: 503,
+    headers: { "content-type": "application/json", "retry-after": "30", ...CORS },
+  });
 }
 
 // What a message actually said, keyed by its id. A reply quotes a message by
@@ -4506,6 +4554,16 @@ async function handle(req: Request, info: Deno.ServeHandlerInfo<Deno.NetAddr>): 
   const path = url.pathname;
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
+  // ---------- maintenance ----------
+  // Ahead of everything that could read the database, the IP cap's token lookup
+  // included, so a shut shrine costs nothing per request. The panel stays open
+  // (it is where the switch is turned back off), and so does /version, which
+  // reads nothing and is what the embed asks before it loads.
+  if (path !== "/version" && path !== "/admin" && !path.startsWith("/admin/")) {
+    const m = await maintState();
+    if (m.on) return maintReply(m);
+  }
+
   const ip = clientIp(req, info);
   if (!(await requestIsAuthed(req, url)) && !allow("ip:" + ip, 90, 60_000)) return tooMany(60);
 
@@ -6495,6 +6553,29 @@ async function handle(req: Request, info: Deno.ServeHandlerInfo<Deno.NetAddr>): 
     return json({ ok: true, live, configured: PROXY_URL !== "" });
   }
 
+  // ---------- admin: maintenance mode ----------
+  // The panel asks what is true now rather than what this copy last heard, so
+  // it reads KV itself instead of trusting the cache.
+  if (req.method === "GET" && path === "/admin/maint") {
+    if (!adminOk(req, url)) return json({ error: "forbidden" }, 403);
+    maintAt = 0;
+    return json(await maintState());
+  }
+  if (req.method === "POST" && path === "/admin/maint") {
+    // deno-lint-ignore no-explicit-any
+    const b: any = await req.json().catch(() => ({}));
+    if (!ADMIN_KEY || b.key !== ADMIN_KEY) return json({ error: "forbidden" }, 403);
+    const on = b.on === true;
+    // changing the message while it is on keeps the time it went on; the
+    // message is kept when it goes off, so the panel offers it again next time
+    const cur = maintClean((await kv.get(["maint"])).value);
+    const next: Maint = { on, msg: clip(b.msg, 200), since: on ? (cur.on && cur.since) || Date.now() : 0 };
+    await kv.set(["maint"], next);
+    maintKnown = next;
+    maintAt = Date.now();
+    return json({ ok: true, ...next });
+  }
+
   // ---------- admin: send a follow-up message/question to an applicant ----------
   if (req.method === "POST" && path === "/admin/message") {
     // deno-lint-ignore no-explicit-any
@@ -8261,6 +8342,7 @@ button{padding:10px 14px;border:none;border-radius:8px;font-weight:600;cursor:po
 <button type="button" class="navbtn" data-pane="postas">Post as&hellip;</button>
 <button type="button" class="navbtn" data-pane="raffles">Giveaways <span class="count" id="count-raffles"></span></button>
 <button type="button" class="navbtn" data-pane="veil">Web veil <span class="count" id="count-veil"></span></button>
+<button type="button" class="navbtn" data-pane="maint">Maintenance <span class="count" id="count-maint"></span></button>
 <button type="button" class="navbtn" data-pane="danger">Wipe data</button>
 </aside>
 <div class="content">
@@ -8368,6 +8450,11 @@ Setting a debt writes it straight to the ledger with no interest added, and <b>0
 <p class="hint">The global half of the veil. "Coming Soon" shows the holding page to everyone; "Live" opens it — but only for members you have also approved individually, on the web-veil line of their card under Manage users. Takes effect immediately — no redeploy.</p>
 <div id="veilbox"><div class="empty">enter your admin key and hit load.</div></div>
 </section>
+<section class="pane" id="pane-maint">
+<h2>Maintenance</h2>
+<p class="hint">Shuts the shrine to everyone but this panel, so the database stops being read and written. Members get one <b>the shrine is resting</b> screen over the chat, the casino and the pit, with your message on it if you leave one. Their open tabs stop polling and check back twice a minute, then let them back in by themselves when you turn it off. Nothing is lost: accounts, balances and chat are all where they were. Takes effect within half a minute &mdash; no redeploy. This panel keeps working the whole time.</p>
+<div id="maintbox"><div class="empty">enter your admin key and hit load.</div></div>
+</section>
 <section class="pane" id="pane-watch">
 <h2>Sahur watch</h2>
 <p class="hint">Catches people botting the free sahurs &mdash; the faucet and tung's giveaways. Every claim is logged with when it came, how long after it became available, how the click was made and which network it came from. The rules below read that log each time somebody claims, and anyone they catch lands in <b>review</b>. The rules and every number in them live in the database and are only set here, so reading the site's code on GitHub does not tell anybody where the lines are.</p>
@@ -8415,7 +8502,7 @@ var balancesDefault=10;   /* the house loan cap, as the server reports it */
    before the key was rotated must not be allowed to overwrite it — every
    pane would come back "forbidden" on a key the door had just accepted. */
 try{if(!keyEl.value){var qk=new URLSearchParams(location.search).get("key");if(qk)keyEl.value=qk;else{var k=localStorage.getItem("shrine-admin-key");if(k)keyEl.value=k;}}}catch(e){}
-function loadAll(){refresh();refreshUsers();refreshBalances();refreshShop();refreshVeil();watchFlags();}
+function loadAll(){refresh();refreshUsers();refreshBalances();refreshShop();refreshVeil();refreshMaint();watchFlags();}
 document.getElementById("load").onclick=loadAll;
 document.getElementById("dumpChat").onclick=dumpChat;
 document.getElementById("clearChat").onclick=function(){
@@ -8464,6 +8551,42 @@ function setVeil(live){
   fetch("/admin/veil",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:k,live:live})})
     .then(function(r){return r.json();}).then(paintVeil)
     .catch(function(){paintVeil({error:"could not reach the server."});});
+}
+var maintbox=document.getElementById("maintbox"),maintCount=document.getElementById("count-maint"),maintOn=false;
+function paintMaint(st){
+  maintbox.innerHTML="";
+  if(st.error){var e=document.createElement("div");e.className="empty";e.textContent=st.error;maintbox.appendChild(e);maintCount.textContent="";return;}
+  var on=maintOn=st.on===true;
+  maintCount.textContent=on?"on":"off";
+  var card=document.createElement("div");card.className="app";
+  var h=document.createElement("h3");h.textContent=on?"On — the shrine is resting":"Off — the shrine is open";
+  card.appendChild(h);
+  var sub=document.createElement("small");
+  sub.textContent=on
+    ?"since "+(st.since?new Date(st.since).toLocaleString():"just now")+". members see the resting screen, and nothing they do reaches the database."
+    :"members are using the shrine as normal.";
+  card.appendChild(sub);
+  var lab=document.createElement("label");lab.className="rflab";lab.style.margin="12px 0";lab.textContent="message on the resting screen (optional)";
+  var msg=document.createElement("textarea");msg.maxLength=200;msg.placeholder="leave blank for none — e.g. back tonight";msg.value=st.msg||"";
+  lab.appendChild(msg);card.appendChild(lab);
+  var row=document.createElement("div");row.className="row";
+  var bOn=document.createElement("button");bOn.className="load";bOn.textContent=on?"update the message":"turn maintenance on";
+  var bOff=document.createElement("button");bOff.className="no";bOff.textContent="turn it off";bOff.disabled=!on;
+  bOn.onclick=function(){setMaint(true,msg.value);};
+  bOff.onclick=function(){setMaint(false,msg.value);};
+  row.appendChild(bOn);row.appendChild(bOff);card.appendChild(row);
+  maintbox.appendChild(card);
+}
+function refreshMaint(){
+  if(!keyEl.value.trim())return;
+  aget("/admin/maint").then(function(r){return r.json();})
+    .then(paintMaint).catch(function(){paintMaint({error:"could not reach the server."});});
+}
+function setMaint(on,msg){
+  if(!keyEl.value.trim())return;
+  if(on&&!maintOn&&!confirm("Turn maintenance on? Everyone but this panel is shut out of the shrine until you turn it off."))return;
+  apost("/admin/maint",{on:on,msg:msg}).then(paintMaint)
+    .catch(function(){paintMaint({error:"could not reach the server."});});
 }
 document.getElementById("purgeGone").onclick=function(){
   var btn=this,out=document.getElementById("purgeGoneOut");

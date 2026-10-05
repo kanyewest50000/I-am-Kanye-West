@@ -1461,6 +1461,21 @@ in the casino through one `onWake` slot holding whichever view is live, a slot
 rather than a list so that re-entering a view cannot pile up handlers for views
 that are gone.
 
+**Maintenance** is the switch for when the database should stop being used at
+all — the quota is nearly spent, or something needs doing to the data. Turned on
+from the panel's **Maintenance** pane, every route but `/admin…` and `/version`
+answers `503 {maintenance: true, msg}`, decided at the very top of `handle()`
+before anything that reads KV, the IP cap's token lookup included. Checking the
+switch costs nothing per request: each running copy of the server holds the
+answer in memory and reads `["maint"]` back at most every 30 seconds, so the copy
+that flipped it knows at once and any other copy within half a minute. On the
+page, whichever request hears it first puts up the lockout screen as **the
+shrine is resting**, with tung's message under it if he left one, and stops the
+room, the conversations and the casino behind it — but leaves game tabs open,
+since those never touch the server. It asks again every 30 seconds rather than
+every 5, and lifts the way a timeout does, when `/status` gives a real answer;
+the chat embed does the same. Nothing is deleted. `scripts/test-maintenance.ts`.
+
 `scripts/test-*.ts` are standalone `deno run --allow-read` checks; the ones that
 read source go through `scripts/shrine-sources.ts` so they keep working when a
 chunk moves file. The live ones talk to a server you start yourself, and a

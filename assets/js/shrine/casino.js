@@ -20,8 +20,11 @@
 (function(){
   var API=SHRINE_API, TKEY="shrine-token-v1";
   function tok(){try{return localStorage.getItem(TKEY)||"";}catch(e){return "";}}
-  function jget(p){return fetch(API+p).then(function(r){return r.json().catch(function(){return{};});});}
-  function jpost(p,b){b=b||{};b.token=tok();return fetch(API+p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){if(refused(r)){refusedGate();return;}return r.json().catch(function(){return{};});});}
+  /* the maintenance switch is the page's to show, not the tables': the chat
+     puts its one resting screen over everything and halts us with it */
+  function resting(d){if(d&&d.maintenance===true){try{if(window.__shrineRest)window.__shrineRest(d);}catch(e){}}return d;}
+  function jget(p){return fetch(API+p).then(function(r){return r.json().catch(function(){return{};});}).then(resting);}
+  function jpost(p,b){b=b||{};b.token=tok();return fetch(API+p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){if(refused(r)){refusedGate();return;}return r.json().catch(function(){return{};});}).then(resting);}
   function el(t,c,txt){var e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;}
   /* ---- a hidden tab asks for nothing ----
      Every poll below runs on an interval, and the tables move fast enough that

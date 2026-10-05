@@ -328,7 +328,10 @@
     'var MSGS={};' +
     'var REACTS=["❤️","👍","👎","😂","😮","😢","🔥","🤡","🙏","💀"];' +
     'var replyTo=null,rTarget=null;' +
-    'function api(p,opt){return fetch(API+p,opt).then(function(r){return r.json().catch(function(){return {};});});}' +
+    /* every answer is looked at once here for the maintenance switch, so no
+       caller has to know it exists: a shut shrine puts the resting screen up
+       and stops whatever asked (see resting() below) */
+    'function api(p,opt){return fetch(API+p,opt).then(function(r){return r.json().catch(function(){return {};});}).then(function(j){if(j&&j.maintenance===true)resting(j);return j;});}' +
     'function apiPost(p,body){return api(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});}' +
     'function loadToken(){try{var t=localStorage.getItem(TKEY);if(t){t=String(t).trim();if(t)return t;}}catch(e){}if(typeof SHRINE_BOOT_TOKEN==="string"&&SHRINE_BOOT_TOKEN){var b=String(SHRINE_BOOT_TOKEN).trim();if(b)return b;}return null;}' +
     'function saveToken(t){try{localStorage.setItem(TKEY,t);}catch(e){}if(typeof SHRINE_BOOT_TOKEN!=="undefined")SHRINE_BOOT_TOKEN=t;}' +
@@ -554,7 +557,13 @@
     'var SAHUR_CAUGHT=["sahur keeps count of every hand at his altar. yours came back too often, too exactly, at hours when the faithful sleep. the shrine is closed to you until he has finished looking.",' +
     '"the altar pours for the faithful, not for machines wearing their hands. sahur noticed. sit outside and think about what a hand is for.",' +
     '"sahur does not sleep, and he saw that you do not either. farming his altar is not devotion. the doors stay shut until the drum says otherwise."];' +
-    'function lockPaint(){if(!LOCKED||!lockEl)return;var to=LOCKED.reason!=="banned",left=LOCKED.until-Date.now(),sah=to&&LOCKED.kind==="sahur";' +
+    'function lockPaint(){if(!LOCKED||!lockEl)return;' +
+    /* maintenance is nobody's fault and has no deadline: it says so, carries
+       tung's message if he left one, and promises to let them back in */
+    'if(LOCKED.reason==="rest"){lockTitleEl.textContent="the shrine is resting";' +
+    'lockWhyEl.textContent="tung has shut the shrine for a while — the chat, the casino and the pit. nothing you had is gone, and there is nothing to do: leave this open and it lets you back in when he opens up.";' +
+    'if(lockNoteEl)lockNoteEl.textContent=LOCKED.why?"tung says: “"+LOCKED.why+"”":"";lockLeftEl.textContent="";lockUntilEl.textContent="";return;}' +
+    'var to=LOCKED.reason!=="banned",left=LOCKED.until-Date.now(),sah=to&&LOCKED.kind==="sahur";' +
     'lockTitleEl.textContent=sah?"sahur caught you":(to?"you are timed out":"you are banned");' +
     'lockWhyEl.textContent=sah?SAHUR_CAUGHT[Math.floor(LOCKED.until/1000)%SAHUR_CAUGHT.length]:(to?"the whole shrine is shut to you until it lifts — the chat, the casino, the games and tung’s originals.":"tung has barred you from the shrine — the chat, the casino, the games and tung’s originals.");' +
     'if(lockNoteEl)lockNoteEl.textContent=to&&LOCKED.why?"tung says: \u201c"+LOCKED.why+"\u201d":"";' +
@@ -566,14 +575,15 @@
     /* `asked` is whether the clock reaching zero has already asked once for
        this deadline, so a clock a little ahead of the server's asks once and
        then leaves it to the five-second check, rather than asking every second */
-    'LOCKED={reason:info&&info.reason==="banned"?"banned":"timeout",until:u,asked:!!(LOCKED&&LOCKED.until===u&&LOCKED.asked),' +
+    'LOCKED={reason:info&&info.reason==="banned"?"banned":(info&&info.reason==="rest"?"rest":"timeout"),until:u,asked:!!(LOCKED&&LOCKED.until===u&&LOCKED.asked),' +
     'why:String((info&&info.why)||"").slice(0,200),kind:info&&info.kind==="sahur"?"sahur":""};' +
     'if(first){' +
     /* everything behind it stops, and nothing it could still reach stays open */
     'polling=false;if(pollT){clearTimeout(pollT);pollT=null;}' +
     'if(dmListT){clearInterval(dmListT);dmListT=null;}dmStop();' +
     'try{if(window.__casinoHalt)window.__casinoHalt();}catch(e){}' +
-    'closePlays();' +
+    /* a game tab never touches the shrine's server, so maintenance leaves it be */
+    'if(LOCKED.reason!=="rest")closePlays();' +
     'if(profEl)profEl.style.display="none";if(tipEl)tipEl.style.display="none";if(keyEl)keyEl.style.display="none";' +
     'topShow("shrine");' +
     'document.body.classList.add("locked");if(lockEl)lockEl.style.display="flex";}' +
@@ -585,10 +595,18 @@
     /* tung can also lift a timeout early, so it is re-asked on the clock the
        room's ban screen always used; a ban never was, and is not now */
     'if(statusT){clearTimeout(statusT);statusT=null;}' +
+    /* maintenance is asked about less often: every one of those asks is a
+       request the switch was turned on to save */
+    'if(LOCKED.reason==="rest"){if(!pageHidden())statusT=setTimeout(refreshGate,30000);return;}' +
     'if(LOCKED.reason!=="banned"&&!pageHidden())statusT=setTimeout(refreshGate,5000);}' +
     'function unlock(){if(!LOCKED)return;LOCKED=null;if(lockTick){clearInterval(lockTick);lockTick=null;}' +
     'document.body.classList.remove("locked");if(lockEl)lockEl.style.display="none";}' +
     /* the casino hears it too, when the tables refuse it before the room does */
+    /* maintenance: the same one screen, for everybody at once. It lifts the way
+       a timeout does — refreshGate() gets a real answer from /status and
+       syncAccess() unlocks — so nothing new is needed to come back from it */
+    'function resting(j){lockOut({reason:"rest",why:j&&j.msg});}' +
+    'window.__shrineRest=function(s){if(s&&s.maintenance===true)resting(s);};' +
     'window.__shrineLock=function(s){if(s&&(s.reason==="timeout"||s.reason==="banned"))lockOut(s);};' +
     'function showBan(info){if(info&&(info.reason==="timeout"||info.reason==="banned")){lockOut(info);return;}polling=false;var why=(info&&info.reason)||"";var isTo=why==="timeout";var isChat=why==="chatban";' +
     'banTitle.textContent=isTo?"you are timed out":(isChat?"the room is shut to you":"you are banned");' +

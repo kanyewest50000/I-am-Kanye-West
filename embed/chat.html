@@ -239,7 +239,14 @@ button.ghost{background:transparent;color:#c8823c;border:1px solid #3a2410}
   var MSGS = {};
   var REACTS = ["❤️","👍","👎","😂","😮","😢","🔥","🤡","🙏","💀"];
   var replyTo = null, rTarget = null;
-  function api(p, opt){ return fetch(API + p, opt).then(function(r){ return r.json().catch(function(){ return {}; }); }); }
+  // every answer is looked at here for the maintenance switch, so a shut shrine
+  // shows its resting screen and stops polling whatever it was that asked
+  function api(p, opt){
+    return fetch(API + p, opt).then(function(r){ return r.json().catch(function(){ return {}; }); }).then(function(j){
+      if (j && j.maintenance === true) showBan({ reason: "rest", msg: j.msg });
+      return j;
+    });
+  }
   function apiPost(p, body){ return api(p, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) }); }
   function loadToken(){ try { var t = localStorage.getItem(TKEY); if (t) { t = String(t).trim(); if (t) return t; } } catch(e) {} return null; }
   function saveToken(t){ try { localStorage.setItem(TKEY, t); } catch(e) {} }
@@ -453,11 +460,18 @@ button.ghost{background:transparent;color:#c8823c;border:1px solid #3a2410}
     var why = (info && info.reason) || "";
     var isTo = why === "timeout";
     var isChat = why === "chatban";
+    // maintenance: the whole shrine, for everybody, until tung turns it off
+    var isRest = why === "rest";
     // a timeout for farming the altar is sahur's own catch; any timeout can
     // carry the words tung gave for it
     var isSahur = isTo && info.kind === "sahur";
-    banTitle.textContent = isSahur ? "sahur caught you" : (isTo ? "you are timed out" : (isChat ? "the room is shut to you" : "you are banned"));
-    if (isTo && info.until) {
+    banTitle.textContent = isRest ? "the shrine is resting" : (isSahur ? "sahur caught you" : (isTo ? "you are timed out" : (isChat ? "the room is shut to you" : "you are banned")));
+    if (isRest) {
+      banUntil.textContent = "tung has shut the shrine for a while. nothing you had is gone — leave this open and it lets you back in when he opens up." +
+        (info.msg ? " tung says: “" + String(info.msg).slice(0, 200) + "”" : "");
+      banUntil.style.display = "";
+    }
+    else if (isTo && info.until) {
       banUntil.textContent = (isSahur ? "sahur keeps count of every hand at his altar, and yours came back too often. " : "") +
         "until " + new Date(info.until).toLocaleString() +
         (info.why ? " \u2014 tung says: \u201c" + String(info.why).slice(0, 200) + "\u201d" : "");
@@ -468,7 +482,7 @@ button.ghost{background:transparent;color:#c8823c;border:1px solid #3a2410}
     show("ban");
     if (statusT) clearTimeout(statusT);
     if (pollT) { clearTimeout(pollT); pollT = null; }
-    if ((isTo || isChat) && !pageHidden()) statusT = setTimeout(refreshGate, isChat ? 15000 : 5000);
+    if ((isTo || isChat || isRest) && !pageHidden()) statusT = setTimeout(refreshGate, isRest ? 30000 : (isChat ? 15000 : 5000));
   }
   function applyWarn(t){ if (warnEl) warnEl.textContent = t; }
   function applyEvent(ev){
